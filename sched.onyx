@@ -9,6 +9,8 @@ use core.iter
 use core.math
 use core.sync
 use core.array
+use runtime
+use core.intrinsics.atomics {__atomic_store}
 
 Scheduler :: struct {
     _tasks: Lock([..] Task)
@@ -18,8 +20,7 @@ Scheduler :: struct {
     _executer: thread.Thread
     _running: bool
 
-    _wakeup_file: os.File
-    _sleep_file:  os.File
+    _wakeup_flag: u32
 }
 
 Task :: struct {
@@ -37,7 +38,6 @@ scheduler_func :: struct { name: str }
 #inject Scheduler {
     make :: () -> (out: Scheduler) {
         out._tasks = Lock.make(make([..] Task))
-        make_pipe(&out._wakeup_file, &out._sleep_file)
         return
     }
 
@@ -67,7 +67,8 @@ scheduler_func :: struct { name: str }
             })
         })
 
-        if self._running do io.stream_write(&self._wakeup_file, "1")
+        __atomic_store(&self._wakeup_flag, 0)
+        runtime.platform.__futex_wake(&self._wakeup_flag, 1)
 
         return id
     }
@@ -82,7 +83,8 @@ scheduler_func :: struct { name: str }
             })
         })
 
-        if self._running do io.stream_write(&self._wakeup_file, "1")
+        __atomic_store(&self._wakeup_flag, 0)
+        runtime.platform.__futex_wake(&self._wakeup_flag, 1)
 
         return id
     }
@@ -98,7 +100,7 @@ scheduler_func :: struct { name: str }
 scheduler_thread :: (scheduler: &Scheduler) {
     while true {
         now: i64 = os.time()
-        next: i64
+        next: i64 = now + 30000
 
         scheduler._tasks->with([tasks] {
             for t in iter.as_iter(tasks) {
@@ -111,14 +113,13 @@ scheduler_thread :: (scheduler: &Scheduler) {
             next = iter.as_iter(*tasks)
                 ->map(x => x.when)
                 ->fold1((x, y) => math.min(x, y))
-                ->value_or(now + 1000)
+                ->value_or(next)
         })
 
         to_sleep := math.min(next - now, 30000)
 
-        _, readable := io.stream_poll(&scheduler._sleep_file, .Read, ~~to_sleep)
-        if readable {
-            io.stream_read_byte(&scheduler._sleep_file)
+        while runtime.platform.__futex_wait(&scheduler._wakeup_flag, 1, ~~to_sleep) == 2 {
+            __atomic_store(&scheduler._wakeup_flag, 1);
         }
     }
 }
@@ -148,19 +149,6 @@ Lock :: struct (T: type_expr) {
        
         return 0
     }
-}
-
-
-#foreign #dyncall "libc.dylib" {
-    pipe :: (descriptors: [&] i32) -> i32 ---
-}
-
-make_pipe :: (p1: &os.File, p2: &os.File) {
-    pipes: [2] i32
-    pipe(~~ pipes)
-
-    *p1 = os.from_fd(os.FileData.{~~ pipes[0]})
-    *p2 = os.from_fd(os.FileData.{~~ pipes[1]})
 }
 
 
