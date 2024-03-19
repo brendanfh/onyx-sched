@@ -45,6 +45,7 @@ scheduler_func :: struct { name: str }
         if self._running do return
 
         thread.spawn(&self._executer, self, scheduler_thread)
+        self._running = true
     }
 
     join :: (self: &Scheduler) {
@@ -66,9 +67,7 @@ scheduler_func :: struct { name: str }
             })
         })
 
-        if self._running {
-            io.stream_write(&self._wakeup_file, "1")
-        }
+        if self._running do io.stream_write(&self._wakeup_file, "1")
 
         return id
     }
@@ -83,9 +82,7 @@ scheduler_func :: struct { name: str }
             })
         })
 
-        if self._running {
-            io.stream_write(&self._wakeup_file, "1")
-        }
+        if self._running do io.stream_write(&self._wakeup_file, "1")
 
         return id
     }
