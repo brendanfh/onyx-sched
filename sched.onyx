@@ -9,11 +9,12 @@ use core.iter
 use core.math
 use core.sync
 use core.array
+use core.heap
 use runtime
 use core.intrinsics.atomics {__atomic_store}
 
 Scheduler :: struct {
-    _tasks: Lock([..] Task)
+    _tasks: Lock(heap.Heap(Task))
 
     _next_id: u64
 
@@ -37,7 +38,9 @@ scheduler_func :: struct { name: str }
 
 #inject Scheduler {
     make :: () -> (out: Scheduler) {
-        out._tasks = Lock.make(make([..] Task))
+        out._tasks = Lock.make(
+            heap.make(Task, (x, y) => cast(i32)(x.when - y.when))
+        )
         return
     }
 
@@ -62,13 +65,15 @@ scheduler_func :: struct { name: str }
         self._next_id += 1
 
         self._tasks->with([tasks] {
-            array.push(tasks, Task.{
+            heap.insert(tasks, Task.{
                 id, at, func, arg
             })
         })
 
-        __atomic_store(&self._wakeup_flag, 0)
-        runtime.platform.__futex_wake(&self._wakeup_flag, 1)
+        if self._running {
+            self._wakeup_flag = 1
+            runtime.platform.__futex_wake(&self._wakeup_flag, 1)
+        }
 
         return id
     }
@@ -78,21 +83,20 @@ scheduler_func :: struct { name: str }
         self._next_id += 1
 
         self._tasks->with([tasks] {
-            array.push(tasks, Task.{
+            heap.insert(tasks, Task.{
                 id, in_ + os.time(), func, arg
             })
         })
 
-        __atomic_store(&self._wakeup_flag, 0)
-        runtime.platform.__futex_wake(&self._wakeup_flag, 1)
+        if self._running {
+            self._wakeup_flag = 1
+            runtime.platform.__futex_wake(&self._wakeup_flag, 1)
+        }
 
         return id
     }
 
     cancel :: (self: &Scheduler, id: u64) {
-        self._tasks->with([tasks] {
-            array.filter(tasks, [t](t.id != id))
-        })
     }
 }
 
@@ -103,24 +107,21 @@ scheduler_thread :: (scheduler: &Scheduler) {
         next: i64 = now + 30000
 
         scheduler._tasks->with([tasks] {
-            for t in iter.as_iter(tasks) {
-                if t.when > now do continue
+            while tasks.data[0].when <= now && tasks.data.count > 0 {
+                t := heap.remove_top(tasks)
 
                 t.func(t.arg)
-                #remove // and mark as done
             }
 
-            next = iter.as_iter(*tasks)
-                ->map(x => x.when)
-                ->fold1((x, y) => math.min(x, y))
-                ->value_or(next)
+            if tasks.data.count > 0 {
+                next = tasks.data[0].when
+            }
         })
 
         to_sleep := math.min(next - now, 30000)
 
-        while runtime.platform.__futex_wait(&scheduler._wakeup_flag, 1, ~~to_sleep) == 2 {
-            __atomic_store(&scheduler._wakeup_flag, 1);
-        }
+        runtime.platform.__futex_wait(&scheduler._wakeup_flag, 0, ~~to_sleep)
+        scheduler._wakeup_flag = 0
     }
 }
 
