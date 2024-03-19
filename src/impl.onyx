@@ -1,0 +1,107 @@
+//+optional-semicolons
+
+package sched
+
+use runtime
+use core {
+    thread
+    os
+    io
+    iter
+    math
+    sync
+    array
+    heap
+}
+
+Scheduler.make :: () -> (out: Scheduler) {
+    out._tasks = Lock.make(
+        heap.make(Task, (x, y) => cast(i32)(x.when - y.when))
+    )
+    out._allocator = context.allocator
+    return
+}
+
+Scheduler.start :: (self: &Scheduler) {
+    if self._running do return
+
+    self._running = true
+    thread.spawn(&self._executer, self, scheduler_thread)
+}
+
+Scheduler.join :: (self: &Scheduler) {
+    thread.join(&self._executer)
+}
+
+Scheduler.run :: (self: &Scheduler) {
+    self->start()
+    self->join()
+}
+
+Scheduler.schedule_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: $T) -> u64 {
+    id := self._next_id
+    self._next_id += 1
+
+    self._tasks->with([tasks] {
+        heap.insert(tasks, Task.{
+            id, at, func,
+            .{ self._allocator->move(arg), T }
+        })
+    })
+
+    if self._running do self._alarm->wakeup()
+
+    return id
+}
+
+Scheduler.schedule_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: $T) -> u64 {
+    id := self._next_id
+    self._next_id += 1
+
+    self._tasks->with([tasks] {
+        heap.insert(tasks, Task.{
+            id, in_ + os.time(), func,
+            .{ self._allocator->move(arg), T }
+        })
+    })
+
+    if self._running do self._alarm->wakeup()
+
+    return id
+}
+
+Scheduler.cancel :: (self: &Scheduler, id: u64) {
+}
+
+
+#local
+scheduler_thread :: (scheduler: &Scheduler) {
+    while scheduler._running {
+        now:  i64 = os.time()
+        next: i64 = now + 30000
+
+        scheduler._tasks->with([tasks] {
+            while tasks.data[0].when <= now && tasks.data.count > 0 {
+                t := heap.remove_top(tasks)
+
+                t.func(t.arg.data)
+                scheduler._allocator->free(t.arg.data)
+            }
+
+            if tasks.data.count > 0 {
+                next = tasks.data[0].when
+            }
+        })
+
+        to_sleep := math.min(next - now, 30000)
+        scheduler._alarm->sleep(~~to_sleep)
+    }
+}
+
+#local
+worker_thread :: (scheduler: &Scheduler) {
+    while scheduler._running {
+
+    }
+}
+

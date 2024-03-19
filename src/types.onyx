@@ -1,0 +1,32 @@
+//+optional-semicolons
+
+package sched
+
+use core.heap
+use core.thread
+
+Scheduler :: struct {
+    _tasks: Lock(heap.Heap(Task))
+
+    _next_id: u64
+
+    _executer: thread.Thread
+    _running: bool
+
+    _alarm: Alarm
+
+    _allocator: Allocator
+}
+
+Task :: struct {
+    id:   u64
+
+    // UNIX Time in milliseconds
+    when: i64
+
+    func: (rawptr) -> void
+    arg: any
+}
+
+scheduler_func :: struct { name: str }
+
