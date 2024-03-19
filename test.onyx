@@ -1,0 +1,36 @@
+//+optional-semicolons
+
+#load "./sched.onyx"
+
+use sched {*}
+use core.alloc
+use core.io
+use core.conv
+use core {stdio, aprintf}
+
+main :: () {
+    s := Scheduler.make()
+
+    cancel_this := s->schedule_in(5 * 1000, say_hi, alloc.on_heap("test"))
+    s->schedule_in(20 * 1000, say_hi, alloc.on_heap("test 2"))
+
+    s->start()
+
+    stdin := io.reader_make(&stdio.stream)
+    while true {
+        line := io.read_line(&stdin)
+        num  := conv.parse(u32, line) ?? 0
+        if num > 0 {
+            s->schedule_in(~~num, say_hi, aprintf("SLEPT FOR {}ms", num) |> alloc.on_heap())
+        }
+
+        if num == 69 {
+            s->cancel(cancel_this)
+        }
+    }
+}
+
+@scheduler_func.{"foo"}
+say_hi :: (msg: &str) {
+    logf(.Info, *msg)
+}

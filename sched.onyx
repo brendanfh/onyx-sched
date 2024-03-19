@@ -1,0 +1,169 @@
+//+optional-semicolons
+
+package sched
+
+use core.thread
+use core.os
+use core.io
+use core.iter
+use core.math
+use core.sync
+use core.array
+
+Scheduler :: struct {
+    _tasks: Lock([..] Task)
+
+    _next_id: u64
+
+    _executer: thread.Thread
+    _running: bool
+
+    _wakeup_file: os.File
+    _sleep_file:  os.File
+}
+
+Task :: struct {
+    id: u64
+
+    when: i64 // UNIX Time in milliseconds
+
+    func: (rawptr) -> void
+    arg: rawptr
+}
+
+scheduler_func :: struct { name: str }
+
+
+#inject Scheduler {
+    make :: () -> (out: Scheduler) {
+        out._tasks = Lock.make(make([..] Task))
+        make_pipe(&out._wakeup_file, &out._sleep_file)
+        return
+    }
+
+    start :: (self: &Scheduler) {
+        if self._running do return
+
+        thread.spawn(&self._executer, self, scheduler_thread)
+    }
+
+    join :: (self: &Scheduler) {
+        thread.join(&self._executer)
+    }
+
+    run :: (self: &Scheduler) {
+        self->start()
+        self->join()
+    }
+
+    schedule_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: &$T) -> u64 {
+        id := self._next_id
+        self._next_id += 1
+
+        self._tasks->with([tasks] {
+            array.push(tasks, Task.{
+                id, at, func, arg
+            })
+        })
+
+        if self._running {
+            io.stream_write(&self._wakeup_file, "1")
+        }
+
+        return id
+    }
+
+    schedule_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: &$T) -> u64 {
+        id := self._next_id
+        self._next_id += 1
+
+        self._tasks->with([tasks] {
+            array.push(tasks, Task.{
+                id, in_ + os.time(), func, arg
+            })
+        })
+
+        if self._running {
+            io.stream_write(&self._wakeup_file, "1")
+        }
+
+        return id
+    }
+
+    cancel :: (self: &Scheduler, id: u64) {
+        self._tasks->with([tasks] {
+            array.filter(tasks, [t](t.id != id))
+        })
+    }
+}
+
+#local
+scheduler_thread :: (scheduler: &Scheduler) {
+    while true {
+        now: i64 = os.time()
+        next: i64
+
+        scheduler._tasks->with([tasks] {
+            for t in iter.as_iter(tasks) {
+                if t.when > now do continue
+
+                t.func(t.arg)
+                #remove // and mark as done
+            }
+
+            next = iter.as_iter(*tasks)
+                ->map(x => x.when)
+                ->fold1((x, y) => math.min(x, y))
+                ->value_or(now + 1000)
+        })
+
+        to_sleep := math.min(next - now, 30000)
+
+        _, readable := io.stream_poll(&scheduler._sleep_file, .Read, ~~to_sleep)
+        if readable {
+            io.stream_read_byte(&scheduler._sleep_file)
+        }
+    }
+}
+
+#local
+worker_thread :: (scheduler: &Scheduler) {
+    while scheduler._running {
+
+    }
+}
+
+
+Lock :: struct (T: type_expr) {
+    mutex: sync.Mutex
+    value: T
+}
+
+#inject Lock {
+    make :: (v: $T) => Lock(T).{
+        value = v
+    }
+
+    with :: macro (l: &Lock, body: Code) -> u32 {
+        sync.scoped_mutex(&l.mutex)
+
+        #unquote body(&l.value)
+       
+        return 0
+    }
+}
+
+
+#foreign #dyncall "libc.dylib" {
+    pipe :: (descriptors: [&] i32) -> i32 ---
+}
+
+make_pipe :: (p1: &os.File, p2: &os.File) {
+    pipes: [2] i32
+    pipe(~~ pipes)
+
+    *p1 = os.from_fd(os.FileData.{~~ pipes[0]})
+    *p2 = os.from_fd(os.FileData.{~~ pipes[1]})
+}
+
+
