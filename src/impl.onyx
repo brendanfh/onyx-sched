@@ -29,6 +29,10 @@ Scheduler.start :: (self: &Scheduler) {
     thread.spawn(&self._executer, self, scheduler_thread)
 }
 
+Scheduler.stop :: (self: &Scheduler) {
+    self._running = false
+}
+
 Scheduler.join :: (self: &Scheduler) {
     thread.join(&self._executer)
 }

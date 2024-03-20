@@ -9,7 +9,7 @@ use core {
     alloc
     io
     conv
-    time
+    os
 }
 
 main :: () {
@@ -23,11 +23,11 @@ main :: () {
     stdin := io.reader_make(&stdio.stream)
     while true {
         line := io.read_line(&stdin)
-        num  := conv.parse(u32, line) ?? 0
+        num  := conv.parse(u64, line) ?? 0
         if num > 0 {
-            s->schedule_in(~~num, say_hi, .{
+            s->schedule_in(num, say_hi, .{
                 message = aprintf("SLEPT FOR {}ms", num)
-                queued_at = time.now()
+                queued_at = os.time()
             })
         }
 
@@ -38,5 +38,5 @@ main :: () {
 }
 
 say_hi :: data => {
-    logf(.Info, "{}", *data)
+    logf(.Info, "[{}]   {}", os.time(), *data)
 }
