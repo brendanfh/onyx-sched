@@ -42,7 +42,7 @@ Scheduler.run :: (self: &Scheduler) {
     self->join()
 }
 
-Scheduler.schedule_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: $T) -> u64 {
+Scheduler.once_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: $T) -> u64 {
     id := self._next_id
     self._next_id += 1
 
@@ -58,7 +58,7 @@ Scheduler.schedule_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: $T
     return id
 }
 
-Scheduler.schedule_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: $T) -> u64 {
+Scheduler.once_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: $T) -> u64 {
     id := self._next_id
     self._next_id += 1
 
@@ -74,7 +74,28 @@ Scheduler.schedule_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: $
     return id
 }
 
+Scheduler.every :: (self: &Scheduler, interval: u64, func: (&T) -> void, arg: $T, run_on_start := false) -> u64 {
+    id := self._next_id
+    self._next_id += 1
+
+    self._tasks->with([tasks] {
+        heap.insert(tasks, Task.{
+            id, os.time() + (interval if !run_on_start else 0),
+            func,
+            .{ self._allocator->move(arg), T },
+            .{ Some = interval }
+        })
+    })
+
+    if self._running do self._alarm->wakeup()
+
+    return id
+}
+
 Scheduler.cancel :: (self: &Scheduler, id: u64) {
+    self._tasks->with([tasks] {
+        heap.remove(tasks, [t](t.id == id))
+    })
 }
 
 
@@ -85,11 +106,28 @@ scheduler_thread :: (scheduler: &Scheduler) {
         next: i64 = now + 30000
 
         scheduler._tasks->with([tasks] {
-            while tasks.data[0].when <= now && tasks.data.count > 0 {
-                t := heap.remove_top(tasks)
+            while true {
+                maybe_task := heap.peek_top(tasks)
+                if !maybe_task do break
 
+                t := maybe_task->unwrap()
+                if t.when > now do break
+
+                heap.remove_top(tasks)
+
+                // Should this be moved to another thread?
                 t.func(t.arg.data)
-                scheduler._allocator->free(t.arg.data)
+
+                switch t.every {
+                    case .Some as interval {
+                        t.when += interval
+                        heap.insert(tasks, t)
+                    }
+
+                    case .None {
+                        scheduler._allocator->free(t.arg.data)
+                    }
+                }
             }
 
             if tasks.data.count > 0 {
@@ -99,13 +137,6 @@ scheduler_thread :: (scheduler: &Scheduler) {
 
         to_sleep := math.min(next - now, 30000)
         scheduler._alarm->sleep(~~to_sleep)
-    }
-}
-
-#local
-worker_thread :: (scheduler: &Scheduler) {
-    while scheduler._running {
-
     }
 }
 

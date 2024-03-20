@@ -26,6 +26,8 @@ Task :: struct {
 
     func: (rawptr) -> void
     arg: any
+
+    every: ? u64
 }
 
 scheduler_func :: struct { name: str }
