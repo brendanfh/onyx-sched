@@ -92,6 +92,31 @@ Scheduler.every :: (self: &Scheduler, interval: u64, func: (&T) -> void, arg: $T
     return id
 }
 
+Scheduler.every_at :: (
+    self: &Scheduler,
+    start_at: u64,
+    interval: u64,
+    func: (&T) -> void,
+    arg: $T,
+    run_on_start := false
+) -> u64 {
+    id := self._next_id
+    self._next_id += 1
+
+    self._tasks->with([tasks] {
+        heap.insert(tasks, Task.{
+            id, start_at,
+            func,
+            .{ self._allocator->move(arg), T },
+            .{ Some = interval }
+        })
+    })
+
+    if self._running do self._alarm->wakeup()
+
+    return id
+}
+
 Scheduler.cancel :: (self: &Scheduler, id: u64) {
     self._tasks->with([tasks] {
         heap.remove(tasks, [t](t.id == id))
