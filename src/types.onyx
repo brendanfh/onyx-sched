@@ -2,11 +2,11 @@
 
 package sched
 
-use core.heap
+use core.heap {Heap}
 use core.thread
 
 Scheduler :: struct {
-    _tasks: Lock(heap.Heap(Task))
+    _tasks: Lock(Heap(Task))
 
     _next_id: u64
 

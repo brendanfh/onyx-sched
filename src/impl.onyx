@@ -10,13 +10,12 @@ use core {
     iter
     math
     sync
-    array
-    heap
 }
+// use core.heap {Heap}
 
 Scheduler.make :: () -> (out: Scheduler) {
     out._tasks = Lock.make(
-        heap.make(Task, (x, y) => cast(i32)(x.when - y.when))
+        Heap.make(Task, (x, y) => cast(i32)(x.when - y.when))
     )
     out._allocator = context.allocator
     return
@@ -47,7 +46,7 @@ Scheduler.once_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: $T) ->
     self._next_id += 1
 
     self._tasks->with([tasks] {
-        heap.insert(tasks, Task.{
+        tasks->insert(.{
             id, at, func,
             .{ self._allocator->move(arg), T }
         })
@@ -63,7 +62,7 @@ Scheduler.once_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: $T) -
     self._next_id += 1
 
     self._tasks->with([tasks] {
-        heap.insert(tasks, Task.{
+        tasks->insert(.{
             id, in_ + os.time(), func,
             .{ self._allocator->move(arg), T }
         })
@@ -79,7 +78,7 @@ Scheduler.every :: (self: &Scheduler, interval: u64, func: (&T) -> void, arg: $T
     self._next_id += 1
 
     self._tasks->with([tasks] {
-        heap.insert(tasks, Task.{
+        tasks->insert(.{
             id, os.time() + (interval if !run_on_start else 0),
             func,
             .{ self._allocator->move(arg), T },
@@ -104,7 +103,7 @@ Scheduler.every_at :: (
     self._next_id += 1
 
     self._tasks->with([tasks] {
-        heap.insert(tasks, Task.{
+        tasks->insert(.{
             id, start_at,
             func,
             .{ self._allocator->move(arg), T },
@@ -119,7 +118,7 @@ Scheduler.every_at :: (
 
 Scheduler.cancel :: (self: &Scheduler, id: u64) {
     self._tasks->with([tasks] {
-        heap.remove(tasks, [t](t.id == id))
+        tasks->remove([t](t.id == id))
     })
 }
 
@@ -132,13 +131,13 @@ scheduler_thread :: (scheduler: &Scheduler) {
 
         scheduler._tasks->with([tasks] {
             while true {
-                maybe_task := heap.peek_top(tasks)
+                maybe_task := tasks->peek_top()
                 if !maybe_task do break
 
                 t := maybe_task->unwrap()
                 if t.when > now do break
 
-                heap.remove_top(tasks)
+                tasks->remove_top()
 
                 // Should this be moved to another thread?
                 t.func(t.arg.data)
@@ -146,7 +145,7 @@ scheduler_thread :: (scheduler: &Scheduler) {
                 switch t.every {
                     case .Some as interval {
                         t.when += interval
-                        heap.insert(tasks, t)
+                        tasks->insert(t)
                     }
 
                     case .None {
