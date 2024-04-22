@@ -11,7 +11,7 @@ use core {
     math
     sync
 }
-// use core.heap {Heap}
+use core.heap {Heap}
 
 Scheduler.make :: () -> (out: Scheduler) {
     out._tasks = Lock.make(
