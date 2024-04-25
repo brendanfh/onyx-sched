@@ -3,7 +3,7 @@ package {
     author "Brendan Hansen" 
     url "" 
     description "Scheduler" 
-    version "0.0.4" 
+    version "0.0.5" 
 }
 
 config {
