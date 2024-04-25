@@ -1,6 +1,7 @@
 package sched
 
 use runtime
+use core.heap {Heap}
 use core {
     thread
     os
@@ -9,7 +10,6 @@ use core {
     math
     sync
 }
-use core.heap {Heap}
 
 Scheduler.make :: () -> (out: Scheduler) {
     out._tasks = Lock.make(
@@ -118,6 +118,10 @@ Scheduler.cancel :: (self: &Scheduler, id: u64) {
     self._tasks->with([tasks] {
         tasks->remove([t](t.id == id))
     })
+
+    if self._current_task.id == id {
+        self._cancel_task = true
+    }
 }
 
 
@@ -136,9 +140,17 @@ scheduler_thread :: (scheduler: &Scheduler) {
                 if t.when > now do break
 
                 tasks->remove_top()
+                scheduler._current_task = &t
 
                 // Should this be moved to another thread?
                 t.func(t.arg.data)
+
+                scheduler._current_task = null
+
+                if scheduler._cancel_task {
+                    scheduler._cancel_task = false
+                    break
+                }
 
                 switch t.every {
                     case .Some as interval {

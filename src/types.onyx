@@ -14,6 +14,9 @@ Scheduler :: struct {
     _alarm: Alarm
 
     _allocator: Allocator
+
+    _current_task: &Task
+    _cancel_task: bool
 }
 
 Task :: struct {
