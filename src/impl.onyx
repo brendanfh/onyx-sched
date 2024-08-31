@@ -12,7 +12,7 @@ use core {
 }
 
 Scheduler.make :: () -> (out: Scheduler) {
-    out._tasks = Lock.make(
+    out._tasks = sync.MutexGuard.make(
         Heap.make(Task, (x, y) => cast(i32)(x.when - y.when))
     )
     out._allocator = context.allocator
@@ -46,7 +46,7 @@ Scheduler.once_at :: (self: &Scheduler, at: u64, func: (&T) -> void, arg: $T) ->
     self._tasks->with([tasks] {
         tasks->insert(.{
             id, at, func,
-            .{ self._allocator->move(arg), T }
+            .{ new(arg, self._allocator), T }
         })
     })
 
@@ -62,7 +62,7 @@ Scheduler.once_in :: (self: &Scheduler, in_: u64, func: (&T) -> void, arg: $T) -
     self._tasks->with([tasks] {
         tasks->insert(.{
             id, in_ + os.time(), func,
-            .{ self._allocator->move(arg), T }
+            .{ new(arg, self._allocator), T }
         })
     })
 
@@ -79,8 +79,8 @@ Scheduler.every :: (self: &Scheduler, interval: u64, func: (&T) -> void, arg: $T
         tasks->insert(.{
             id, os.time() + (interval if !run_on_start else 0),
             func,
-            .{ self._allocator->move(arg), T },
-            .{ Some = interval }
+            .{ new(arg, self._allocator), T },
+            interval
         })
     })
 
@@ -105,7 +105,7 @@ Scheduler.every_at :: (
             id, start_at,
             func,
             .{ self._allocator->move(arg), T },
-            .{ Some = interval }
+            interval
         })
     })
 
@@ -136,7 +136,7 @@ scheduler_thread :: (scheduler: &Scheduler) {
                 maybe_task := tasks->peek_top()
                 if !maybe_task do break
 
-                t := maybe_task->unwrap()
+                t := maybe_task!
                 if t.when > now do break
 
                 tasks->remove_top()

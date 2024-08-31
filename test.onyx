@@ -20,7 +20,7 @@ main :: () {
 
     s->start()
 
-    stdin := io.reader_make(&stdio.stream)
+    stdin := io.Reader.make(&stdio.stream)
     while true {
         line := io.read_line(&stdin)
         num  := conv.parse(u64, line) ?? 0

@@ -2,9 +2,10 @@ package sched
 
 use core.heap {Heap}
 use core.thread
+use core.sync {MutexGuard}
 
 Scheduler :: struct {
-    _tasks: Lock(Heap(Task))
+    _tasks: MutexGuard(Heap(Task))
 
     _next_id: u64
 

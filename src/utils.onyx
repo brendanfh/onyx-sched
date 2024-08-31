@@ -3,24 +3,6 @@ package sched
 use core.sync
 use runtime
 
-Lock :: struct (T: type_expr) {
-    mutex: sync.Mutex
-    value: T
-}
-
-Lock.make :: (v: $T) => Lock(T).{
-    value = v
-}
-
-Lock.with :: macro (l: &Lock, body: Code) -> u32 {
-    sync.scoped_mutex(&l.mutex)
-
-    #unquote body(&l.value)
-   
-    return 0
-}
-
-
 
 Alarm :: struct {
     _flag: u32
